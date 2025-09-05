@@ -11,7 +11,7 @@ You can use overrides menu to make it create an activator with '--no-sandbox' pa
 Tested on Ubuntu 25.04
 
 Dependencies:
-tar, gzip, curl
+tar, gzip, wget
 
 I provide this script as is. I do not take any responsibility if it malfunctions, etc.
 You use it at your own risk.
