@@ -4,6 +4,7 @@ It can:
 - Update existing installation
 - Uninstall
 - Remove the user data folder
+- Optionally run the postinst.sh provided by Discord
 
 You can use overrides menu to make it create an activator with '--no-sandbox' parameter. That might be useful on Ubuntu distros.
 
