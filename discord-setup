@@ -1,0 +1,361 @@
+#!/bin/bash
+
+SCRIPT_VERSION="1.1"
+
+# Discord will be installed in DISCORD_INSTALL_PATH/Discord
+# in $DISCORD_INSTALL_PATH you will find the icon and .desktop
+DISCORD_INSTALL_PATH="$HOME/opt/Discord_installation"
+
+TAR_URL="https://discord.com/api/download/stable?platform=linux&format=tar.gz"
+
+
+#For text coloring
+C_GREEN="\e[92m"
+C_BLUE="\e[34m"
+C_CYAN="\e[96m"
+C_RED="\e[91m"
+C_YELLOW="\e[93m"
+C_ESC="\e[0m"
+C_DEFAULT="\e[39m"
+C_BLUE_BG="\e[44m"
+
+TEMP_ACTIVATOR_PATH="/tmp/discord-Discord.desktop"
+TAR_OUTPUT_PATH="/tmp/discord_update_latest.tar.gz"
+
+OVERRIDE_OPTION_1="FALSE"
+
+# --- Functions --------------------------------
+
+function CLEANUP () {
+    echo -e "${C_CYAN}Cleaning up /tmp files...${C_ESC}"
+
+    if [ -f "$TEMP_ACTIVATOR_PATH" ]; then
+        echo "1/2"
+        rm "$TEMP_ACTIVATOR_PATH"
+    fi
+
+    if [ -f "$TAR_OUTPUT_PATH" ]; then
+        echo "2/2"
+        rm "$TAR_OUTPUT_PATH"
+    fi
+
+    echo -e "${C_GREEN}Done${C_ESC}"
+}
+
+# Extract the tar archive
+# Usage: EXTRACT /path/to/archive.tar /target/directory
+function EXTRACT (
+    echo -e "${C_CYAN}Extracting...${C_ESC}"
+    tar -xf "$1" -C "$2"
+    echo -e "${C_GREEN}Extracting done...${C_ESC}"
+)
+
+# Function of pause. Usage:
+# PAUSE <text>
+function PAUSE () {
+	read -p "$*"
+}
+
+# Detects the installation by the $DISCORD_INSTALL_PATH
+# it shows a message depending if the folder exists or not
+function DETECT_INSTALLATION () {
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+        echo -e "${C_GREEN}Detected${C_ESC}"
+    else
+        echo -e "${C_YELLOW}Not detected${C_ESC}"
+    fi
+}
+
+function DOWNLOAD_LATEST_TARGZ () {
+    echo "Downloading the latest package..."
+    wget "$TAR_URL" -O "$TAR_OUTPUT_PATH"
+}
+
+# Create the install path if it doesn't exist
+function CHECK_DIRECTORIES () {
+    	if [ ! -d "$DISCORD_INSTALL_PATH" ]; then
+            mkdir -p "$DISCORD_INSTALL_PATH"
+            echo -e "${C_CYAN}${DISCORD_INSTALL_PATH} has been created${C_ESC}" 
+	    fi
+}
+
+function CHECK_IF_DISCORD_IS_RUNNING () {
+    if pgrep -x "Discord" > /dev/null
+    then
+        echo -e "${C_YELLOW}Discord is currently running! Please close it before doing any actions in this script!${C_ESC}"
+    else
+        echo -e "${C_GREEN}No Discord running instance detected.${C_ESC}"
+    fi
+}
+
+# Generate the desktop activator and write it to /tmp
+# Before it starts, it looks for one in /tmp and removes it
+# use NO-SANDBOX as an argument, to change the contents of the activator to include --no-sandbox to the Exec
+function GENERATE_DESKTOP_ACTIVATOR () {
+
+    if [ -f "$TEMP_ACTIVATOR_PATH" ]; then
+        echo -e "${C_CYAN}${TEMP_ACTIVATOR_PATH} has been found. Removing it...${C_ESC}"
+        rm "$TEMP_ACTIVATOR_PATH"
+    fi
+
+    if [ "$1" = "NO-SANDBOX" ]; then
+        local EXTRA_PARAMETER=" --no-sandbox"
+    else
+        local EXTRA_PARAMETER=""
+    fi
+
+    echo "[Desktop Entry]
+Name=Discord
+StartupWMClass=discord
+Comment=All-in-one voice and text chat for gamers that's free, secure, and works on both your desktop and phone.
+GenericName=Internet Messenger
+Exec=$DISCORD_INSTALL_PATH/Discord/Discord${EXTRA_PARAMETER}
+Icon=$DISCORD_INSTALL_PATH/Discord/discord.png
+Type=Application
+Categories=Network;InstantMessaging;
+Path=${DISCORD_INSTALL_PATH}/Discord" > "$TEMP_ACTIVATOR_PATH"
+    echo -e "${C_GREEN}The activator has been created...${C_ESC}"
+}
+
+function INSTALL_ACTIVATOR () {
+    if [ ! -f "$TEMP_ACTIVATOR_PATH" ]; then
+        echo -e "${C_RED}Couldn't find the activator in /tmp${C_ESC}"
+        echo -e "${C_RED}Aborting${C_ESC}"
+        return 0
+    fi
+
+    echo -e "${C_CYAN}Installing the activator...${C_ESC}"
+    xdg-desktop-menu install "$TEMP_ACTIVATOR_PATH"
+    echo -e "${C_GREEN}The activator has been installed...${C_ESC}"
+}
+
+function RUN_POSTINST () {
+    echo -e "${C_CYAN}Running the '$DISCORD_INSTALL_PATH/Discord/postinst.sh'...${C_ESC}"
+    . "$DISCORD_INSTALL_PATH/Discord/postinst.sh"
+}
+
+function UNINSTALL () {
+
+    if [ "$1" = "REMOVE_USERDATA" ]; then
+        if [ -d "$HOME/.config/discord" ]; then
+            echo -e "${C_CYAN}Removing the user data folder...${C_ESC}"
+            rm -r "$HOME/.config/discord"
+        else
+            echo -e "${C_YELLOW}Couldn't find the user data folder${C_ESC}"
+        fi
+    fi
+
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+        echo -e "${C_CYAN}Removing contents of Discord install folder...${C_ESC}"
+        rm -r "$DISCORD_INSTALL_PATH"
+    else
+        echo -e "${C_YELLOW}Couldn't find the Discord install folder${C_ESC}"
+    fi
+
+    echo -e "${C_CYAN}Removing the activator${C_ESC}"
+    xdg-desktop-menu uninstall "$TEMP_ACTIVATOR_PATH"
+}
+
+# --- Logic ------------------------------------
+
+function INITIALISE () {
+    echo -e "${C_BLUE_BG}Step 1/8 - Cleanup${C_ESC}"
+    CLEANUP
+
+    echo -e "${C_BLUE_BG}Step 2/8 - Uninstall the previous version${C_ESC}"
+    UNINSTALL
+
+    echo -e "${C_BLUE_BG}Step 3/8 - Check directories, and create the install path if it doesn't exist${C_ESC}"
+    CHECK_DIRECTORIES
+
+    echo -e "${C_BLUE_BG}Step 4/8 - Download the latest .tar.gz package from Discord servers${C_ESC}"
+    DOWNLOAD_LATEST_TARGZ
+
+    echo -e "${C_BLUE_BG}Step 5/8 - Extract the package to the install location${C_ESC}"
+    EXTRACT "$TAR_OUTPUT_PATH" "$DISCORD_INSTALL_PATH"
+
+    echo -e "${C_BLUE_BG}Step 6/8 - Generate the activator${C_ESC}"
+
+    if [ "$OVERRIDE_OPTION_1" == "TRUE" ]; then
+        GENERATE_DESKTOP_ACTIVATOR NO-SANDBOX
+    elif [ "$OVERRIDE_OPTION_1" == "FALSE" ]; then
+        GENERATE_DESKTOP_ACTIVATOR
+    fi
+
+    echo -e "${C_BLUE_BG}Step 7/8 - Install the activator${C_ESC}"
+    INSTALL_ACTIVATOR
+
+    echo -e "${C_BLUE_BG}Step 8/8 - Cleanup again${C_ESC}"
+    CLEANUP
+}
+
+function DISPLAY_HEADER () {
+    echo "Discord install/update script (v${SCRIPT_VERSION}) by Limoncia (https://github.com/limoncia)"
+    echo
+    echo -e "Install path: ${C_BLUE}$DISCORD_INSTALL_PATH${C_ESC} ($(DETECT_INSTALLATION))"
+    echo "Discord process status: $(CHECK_IF_DISCORD_IS_RUNNING)"
+    DISPLAY_OVERRIDES_INFO
+}
+
+function DISPLAY_OVERRIDES_INFO () {
+    if [ ! "$OVERRIDE_OPTION_1" == "FALSE" ]; then
+        echo
+        echo -e "${C_CYAN}Overrides turned on.${C_ESC}"
+        echo -e "${C_CYAN}'--no-sandbox' in the activator will be used${C_ESC}"
+    fi
+}
+
+# --- Menus ------------------------------------
+
+function MAIN_MENU (){
+while :
+do
+    clear
+    DISPLAY_HEADER
+    echo
+    echo "PLEASE make sure Discord isn't currently running when installing or updating!"
+    echo
+    echo "[1] - Install/update"
+    echo "[2] - Advanced (be careful!)"
+    echo
+    echo "[0] - Exit"
+    echo -n ">> "
+
+    read OPTION1
+        case $OPTION1 in
+            "0")
+                return 0
+            ;;
+
+            "1")
+                INITIALISE
+                PAUSE "Press any key to continue."
+                CHOICE_MENU_1
+            ;;
+
+            "2")
+                ADVANCED_MENU
+            ;;
+        esac
+done
+}
+
+function CHOICE_MENU_1 (){
+while :
+do
+    clear
+    DISPLAY_HEADER
+    echo
+    echo "PLEASE make sure Discord isn't currently running when installing or updating!"
+    echo
+    echo "Do you want to run the 'postinst.sh' provided by Discord?"
+    echo "While not necessary, it might fix some potential issues after an update"
+    echo
+    echo "[1] - Yes"
+    echo "[2] - No"
+    echo
+    echo
+    echo -n ">> "
+
+    read OPTION1
+        case $OPTION1 in
+            "1")
+                RUN_POSTINST
+                PAUSE "Press [ENTER] to continue"
+                return 0
+            ;;
+
+            "2")
+                return 0
+            ;;
+        esac
+done
+}
+
+function ADVANCED_MENU (){
+while :
+do
+    clear
+    DISPLAY_HEADER
+    echo
+    echo "PLEASE make sure Discord isn't currently running when using those options!"
+    echo
+    echo "[1] - Remove the user data"
+    echo "[2] - Complete uninstall"
+    echo
+    echo "[3] - Function overrides (advanced)"
+    echo
+    echo "[0] - Go back"
+    echo -n ">> "
+
+    read OPTION1
+        case $OPTION1 in
+            "0")
+                return 0
+            ;;
+
+            "1")
+                if [ -d "$HOME/.config/discord" ]; then
+                    echo -e "${C_CYAN}Removing the user data folder...${C_ESC}"
+                    rm -r "$HOME/.config/discord"
+                else
+                    echo -e "${C_YELLOW}Couldn't find the user data folder${C_ESC}"
+                fi
+
+                PAUSE "Press any key to continue."
+            ;;
+
+            "2")
+                UNINSTALL REMOVE_USERDATA
+                PAUSE "Press any key to continue."
+            ;;
+
+            "3")
+                MENU_OVERRIDES
+            ;;
+        esac
+done
+}
+
+function OVERRIDE_OPTION_1_STATUS () {
+    if [ "$OVERRIDE_OPTION_1" == "TRUE" ]; then
+        echo -e "${C_CYAN}Enabled${C_ESC}"
+    elif  [ "$OVERRIDE_OPTION_1" == "FALSE" ]; then
+        echo -e "${C_CYAN}Disabled${C_ESC}"
+    fi
+}
+
+function MENU_OVERRIDES (){
+while :
+do
+    clear
+    DISPLAY_HEADER
+    echo
+    echo "[1] - Use '--no-sandbox' in the activator [status: $(OVERRIDE_OPTION_1_STATUS)]"
+    echo
+    echo
+    echo "[0] - Go back"
+    echo -n ">> "
+
+    read OPTION1
+        case $OPTION1 in
+            "0")
+                return 0
+            ;;
+
+            "1")
+                if [ "$OVERRIDE_OPTION_1" == "TRUE" ]; then
+                    OVERRIDE_OPTION_1="FALSE"
+                elif [ "$OVERRIDE_OPTION_1" == "FALSE" ]; then
+                    OVERRIDE_OPTION_1="TRUE"
+                fi
+            ;;
+        esac
+done
+}
+
+
+# --- Script logic -----------------------------
+
+CLEANUP
+MAIN_MENU
