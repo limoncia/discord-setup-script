@@ -8,7 +8,7 @@ It can:
 
 You can use overrides menu to make it create an activator with '--no-sandbox' parameter. That might be useful on Ubuntu distros.
 
-Tested on Ubuntu 25.04
+Tested on Ubuntu 25.04, Mint 22.2
 
 Dependencies:
 tar, gzip, wget
