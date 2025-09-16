@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.1"
+SCRIPT_VERSION="1.2"
 
 # Discord will be installed in DISCORD_INSTALL_PATH/Discord
 # in $DISCORD_INSTALL_PATH you will find the icon and .desktop
@@ -22,9 +22,45 @@ C_BLUE_BG="\e[44m"
 TEMP_ACTIVATOR_PATH="/tmp/discord-Discord.desktop"
 TAR_OUTPUT_PATH="/tmp/discord_update_latest.tar.gz"
 
+# Config file that will do for persistent storage of the override options below
+JSON_CONFIG_FILE="$DISCORD_INSTALL_PATH/config.json"
+
 OVERRIDE_OPTION_1="FALSE"
+# placeholder for potential future stuff:
+OVERRIDE_OPTION_2="FALSE" 
 
 # --- Functions --------------------------------
+
+# For reading all of the needed config variables
+function READ_CONFIG () {
+    READ_FROM_CONFIG override1
+    READ_FROM_CONFIG override2
+}
+
+# Checks if the json file exists, then proceeds to read from it
+function READ_FROM_CONFIG () {
+    if [ -f "$JSON_CONFIG_FILE" ]; then
+        echo "Reading json..."
+        OVERRIDE_OPTION_1=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override1')
+        OVERRIDE_OPTION_2=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override2')
+    fi
+}
+
+# Writes the config with currently set options
+function WRITE_CONFIG () {
+    if [ -f "$JSON_CONFIG_FILE" ]; then
+        rm "$JSON_CONFIG_FILE"
+    fi
+
+    # Wtire the json file, if the location exists
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+        echo "Writing json..."
+        jq -n --arg override1 ${OVERRIDE_OPTION_1} \
+            --arg override2 ${OVERRIDE_OPTION_2} \
+            '{configuration: $ARGS.named}' > "$JSON_CONFIG_FILE"
+    fi
+
+}
 
 function CLEANUP () {
     echo -e "${C_CYAN}Cleaning up /tmp files...${C_ESC}"
@@ -117,6 +153,7 @@ Path=${DISCORD_INSTALL_PATH}/Discord" > "$TEMP_ACTIVATOR_PATH"
     echo -e "${C_GREEN}The activator has been created...${C_ESC}"
 }
 
+# Installs the activator using xdg-desktop-menu
 function INSTALL_ACTIVATOR () {
     if [ ! -f "$TEMP_ACTIVATOR_PATH" ]; then
         echo -e "${C_RED}Couldn't find the activator in /tmp${C_ESC}"
@@ -129,13 +166,14 @@ function INSTALL_ACTIVATOR () {
     echo -e "${C_GREEN}The activator has been installed...${C_ESC}"
 }
 
+# Runs the postinst.sh provided by Discord
 function RUN_POSTINST () {
     echo -e "${C_CYAN}Running the '$DISCORD_INSTALL_PATH/Discord/postinst.sh'...${C_ESC}"
     . "$DISCORD_INSTALL_PATH/Discord/postinst.sh"
 }
 
+# Uninstall function. It won't touch the userdata folder, unless 'REMOVE_USERDATA' is used as an argument
 function UNINSTALL () {
-
     if [ "$1" = "REMOVE_USERDATA" ]; then
         if [ -d "$HOME/.config/discord" ]; then
             echo -e "${C_CYAN}Removing the user data folder...${C_ESC}"
@@ -358,4 +396,7 @@ done
 # --- Script logic -----------------------------
 
 CLEANUP
+READ_CONFIG
 MAIN_MENU
+WRITE_CONFIG
+echo "End of the script"
