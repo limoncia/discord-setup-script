@@ -12,7 +12,7 @@ You can use overrides menu to make it create an activator with '--no-sandbox' pa
 Tested on Ubuntu 25.04, Mint 22.2
 
 Dependencies:
-tar, gzip, wget
+tar, gzip, wget, jq
 
 I provide this script as is. I do not take any responsibility if it malfunctions, etc.
 You use it at your own risk.
