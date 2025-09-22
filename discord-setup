@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.2"
+SCRIPT_VERSION="1.3"
 
 # Discord will be installed in DISCORD_INSTALL_PATH/Discord
 # in $DISCORD_INSTALL_PATH you will find the icon and .desktop
@@ -27,37 +27,88 @@ JSON_CONFIG_FILE="$DISCORD_INSTALL_PATH/config.json"
 
 OVERRIDE_OPTION_1="FALSE"
 # placeholder for potential future stuff:
-OVERRIDE_OPTION_2="FALSE" 
+OVERRIDE_OPTION_2="FALSE"
+
+# Enables jq support to write and read the config
+USE_JQ="TRUE"
 
 # --- Functions --------------------------------
 
-# For reading all of the needed config variables
-function READ_CONFIG () {
-    READ_FROM_CONFIG override1
-    READ_FROM_CONFIG override2
+function CHECK_DEPENDENCIES () {
+    if [ ! $(command -v "tar") ]; then
+            echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'tar'${C_ESC}"
+            echo -e "${C_YELLOW}tar is necessary to unpack the downloaded Discord package${C_ESC}"
+            echo
+            DEPENDENCY_ERROR="TRUE"
+    fi
+
+    if [ ! $(command -v "gzip") ]; then
+            echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'gzip'${C_ESC}"
+            echo -e "${C_YELLOW}gzip is necessary to unpack the downloaded Discord package${C_ESC}"
+            echo
+            DEPENDENCY_ERROR="TRUE"
+    fi
+
+    if [ ! $(command -v "wget") ]; then
+            echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'wget'${C_ESC}"
+            echo -e "${C_YELLOW}wget is necessary to download the Discord package${C_ESC}"
+            echo
+            DEPENDENCY_ERROR="TRUE"
+    fi
+
+    if [ ! $(command -v "jq") ]; then
+            USE_JQ="FALSE"
+            echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'jq'${C_ESC}"
+            echo -e "${C_YELLOW}jq is used to save and read the script configuration${C_ESC}"
+            echo -e "${C_YELLOW}While not necessary, it's highly recommended${C_ESC}"
+            echo
+    fi
+
+    if [ "$DEPENDENCY_ERROR" = "TRUE" ]; then
+        echo -e "${C_RED}Cannot continue due to dependency errors.${C_ESC}"
+        exit 1
+    fi
 }
 
+function DEPENDENCY_CHECK () {
+if [ ! $(command -v "$1") ]; then
+		echo -e "${C_RED}Warning! Couldn't find the '"$1"'!${C_ESC}"
+fi
+}
+
+#Usage: PAUSE <text>
+function PAUSE () {
+	read -p "$*"
+}
+
+# For reading all of the needed config variables
 # Checks if the json file exists, then proceeds to read from it
-function READ_FROM_CONFIG () {
-    if [ -f "$JSON_CONFIG_FILE" ]; then
-        echo "Reading json..."
-        OVERRIDE_OPTION_1=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override1')
-        OVERRIDE_OPTION_2=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override2')
+function READ_CONFIG () {
+    if [ "$USE_JQ" = "TRUE" ]; then
+        if [ -f "$JSON_CONFIG_FILE" ]; then
+            echo "Reading json..."
+            OVERRIDE_OPTION_1=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override1')
+            OVERRIDE_OPTION_2=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override2')
+        else
+            echo "No config file to read. Skipping"
+        fi
     fi
 }
 
 # Writes the config with currently set options
 function WRITE_CONFIG () {
-    if [ -f "$JSON_CONFIG_FILE" ]; then
-        rm "$JSON_CONFIG_FILE"
-    fi
+    if [ "$USE_JQ" = "TRUE" ]; then
+        if [ -f "$JSON_CONFIG_FILE" ]; then
+            rm "$JSON_CONFIG_FILE"
+        fi
 
-    # Wtire the json file, if the location exists
-    if [ -d "$DISCORD_INSTALL_PATH" ]; then
-        echo "Writing json..."
-        jq -n --arg override1 ${OVERRIDE_OPTION_1} \
-            --arg override2 ${OVERRIDE_OPTION_2} \
-            '{configuration: $ARGS.named}' > "$JSON_CONFIG_FILE"
+        # Wtire the json file, if the location exists
+        if [ -d "$DISCORD_INSTALL_PATH" ]; then
+            echo "Writing json..."
+            jq -n --arg override1 ${OVERRIDE_OPTION_1} \
+                --arg override2 ${OVERRIDE_OPTION_2} \
+                '{configuration: $ARGS.named}' > "$JSON_CONFIG_FILE"
+        fi
     fi
 
 }
@@ -232,14 +283,21 @@ function DISPLAY_HEADER () {
     echo
     echo -e "Install path: ${C_BLUE}$DISCORD_INSTALL_PATH${C_ESC} ($(DETECT_INSTALLATION))"
     echo "Discord process status: $(CHECK_IF_DISCORD_IS_RUNNING)"
+    if [ "$USE_JQ" = "FALSE" ]; then
+        echo
+        echo -e "${C_YELLOW}jq not present or disabled. Configuration will not be stored.${C_ESC}"
+    fi
+    echo
     DISPLAY_OVERRIDES_INFO
 }
 
 function DISPLAY_OVERRIDES_INFO () {
     if [ ! "$OVERRIDE_OPTION_1" == "FALSE" ]; then
-        echo
-        echo -e "${C_CYAN}Overrides turned on.${C_ESC}"
-        echo -e "${C_CYAN}'--no-sandbox' in the activator will be used${C_ESC}"
+        echo -e "${C_CYAN}override1 enabled: '--no-sandbox' in the activator will be used${C_ESC}"
+    fi
+
+    if [ ! "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+        echo -e "${C_CYAN}override2 enabled: 'postinst.sh' will always be used${C_ESC}"
     fi
 }
 
@@ -257,6 +315,12 @@ do
     echo "[2] - Advanced (be careful!)"
     echo
     echo "[0] - Exit"
+    echo
+    echo
+    echo
+    echo
+    echo
+    echo
     echo -n ">> "
 
     read OPTION1
@@ -267,7 +331,11 @@ do
 
             "1")
                 INITIALISE
-                PAUSE "Press any key to continue."
+
+                if [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+                    PAUSE "Press any key to continue."
+                fi
+
                 CHOICE_MENU_1
             ;;
 
@@ -279,35 +347,43 @@ done
 }
 
 function CHOICE_MENU_1 (){
-while :
-do
-    clear
-    DISPLAY_HEADER
-    echo
-    echo "PLEASE make sure Discord isn't currently running when installing or updating!"
-    echo
-    echo "Do you want to run the 'postinst.sh' provided by Discord?"
-    echo "While not necessary, it might fix some potential issues after an update"
-    echo
-    echo "[1] - Yes"
-    echo "[2] - No"
-    echo
-    echo
-    echo -n ">> "
+    if [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+        while :
+        do
+            clear
+            DISPLAY_HEADER
+            echo
+            echo "PLEASE make sure Discord isn't currently running when installing or updating!"
+            echo
+            echo "Do you want to run the 'postinst.sh' provided by Discord?"
+            echo "While not necessary, it might fix some potential issues after an update"
+            echo
+            echo "[1] - Yes"
+            echo "[2] - No"
+            echo
+            echo
+            echo
+            echo
+            echo
+            echo -n ">> "
 
-    read OPTION1
-        case $OPTION1 in
-            "1")
-                RUN_POSTINST
-                PAUSE "Press [ENTER] to continue"
-                return 0
-            ;;
+            read OPTION1
+                case $OPTION1 in
+                    "1")
+                        RUN_POSTINST
+                        PAUSE "Press [ENTER] to continue"
+                        return 0
+                    ;;
 
-            "2")
-                return 0
-            ;;
-        esac
-done
+                    "2")
+                        return 0
+                    ;;
+                esac
+        done
+    else
+        RUN_POSTINST
+        PAUSE "Press [ENTER] to continue"
+    fi
 }
 
 function ADVANCED_MENU (){
@@ -323,7 +399,11 @@ do
     echo
     echo "[3] - Function overrides (advanced)"
     echo
+    echo
     echo "[0] - Go back"
+    echo
+    echo
+    echo
     echo -n ">> "
 
     read OPTION1
@@ -363,6 +443,14 @@ function OVERRIDE_OPTION_1_STATUS () {
     fi
 }
 
+function OVERRIDE_OPTION_2_STATUS () {
+    if [ "$OVERRIDE_OPTION_2" == "TRUE" ]; then
+        echo -e "${C_CYAN}True${C_ESC}"
+    elif  [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+        echo -e "${C_CYAN}False${C_ESC}"
+    fi
+}
+
 function MENU_OVERRIDES (){
 while :
 do
@@ -370,9 +458,17 @@ do
     DISPLAY_HEADER
     echo
     echo "[1] - Use '--no-sandbox' in the activator [status: $(OVERRIDE_OPTION_1_STATUS)]"
-    echo
+    echo "[2] - Always run the postinst.sh [status: $(OVERRIDE_OPTION_2_STATUS)]"
     echo
     echo "[0] - Go back"
+    echo
+    echo
+    echo
+    echo
+    echo
+    echo
+    echo
+    echo
     echo -n ">> "
 
     read OPTION1
@@ -388,6 +484,14 @@ do
                     OVERRIDE_OPTION_1="TRUE"
                 fi
             ;;
+
+            "2")
+                if [ "$OVERRIDE_OPTION_2" == "TRUE" ]; then
+                    OVERRIDE_OPTION_2="FALSE"
+                elif [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+                    OVERRIDE_OPTION_2="TRUE"
+                fi
+            ;;
         esac
 done
 }
@@ -395,6 +499,7 @@ done
 
 # --- Script logic -----------------------------
 
+CHECK_DEPENDENCIES
 CLEANUP
 READ_CONFIG
 MAIN_MENU
