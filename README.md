@@ -8,6 +8,8 @@ This is my Bash script I wrote to make managing Discord installation easier (wit
 - Optionally run the postinst.sh provided by Discord (or always, automatically if you set that in the overrides menu)
 - Keep your overrided settings in json file
 
+![overview](https://github.com/limoncia/discord-setup-script/blob/main/overview.gif)
+
 # Dependencies:
 (The script will tell you, if you miss something)
 - tar
