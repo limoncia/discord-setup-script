@@ -9,7 +9,7 @@ This is my Bash script I wrote to make managing Discord installation easier (wit
 - Keep your overrided settings in json file
 
 # Dependencies:
-(The script will tell you miss something)
+(The script will tell you, if you miss something)
 - tar
 - gzip
 - wget
