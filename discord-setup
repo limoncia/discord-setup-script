@@ -1,13 +1,49 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.3"
+SCRIPT_VERSION="1.4"
+
+# ---------------------------------------------------------------------------
+# MIT License
+
+# Copyright (c) 2025 Limoncia
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# Everything is necessary for this script
+
+# wget      - for downloading the tar.gz
+# tar       - for extracting files from the archive
+# gzip      - for handling the gzip compression
+# jq        - for writing and reading json files
+# curl      - for sending requests for json files
+# xdg-utils - for handling desktop activators
+
+# ---------------------------------------------------------------------------
 
 # Discord will be installed in DISCORD_INSTALL_PATH/Discord
 # in $DISCORD_INSTALL_PATH you will find the icon and .desktop
 DISCORD_INSTALL_PATH="$HOME/opt/Discord_installation"
 
 TAR_URL="https://discord.com/api/download/stable?platform=linux&format=tar.gz"
-
+UPDATE_API_URL="https://discord.com/api/updates/stable?platform=linux"
 
 #For text coloring
 C_GREEN="\e[92m"
@@ -18,50 +54,71 @@ C_YELLOW="\e[93m"
 C_ESC="\e[0m"
 C_DEFAULT="\e[39m"
 C_BLUE_BG="\e[44m"
+C_MAGENTA_BG="\e[45m"
 
 TEMP_ACTIVATOR_PATH="/tmp/discord-Discord.desktop"
 TAR_OUTPUT_PATH="/tmp/discord_update_latest.tar.gz"
 
-# Config file that will do for persistent storage of the override options below
+# Config file that will store the override options from below
 JSON_CONFIG_FILE="$DISCORD_INSTALL_PATH/config.json"
 
 OVERRIDE_OPTION_1="FALSE"
-# placeholder for potential future stuff:
 OVERRIDE_OPTION_2="FALSE"
+OVERRIDE_OPTION_3="FALSE"
 
-# Enables jq support to write and read the config
-USE_JQ="TRUE"
 
 # --- Functions --------------------------------
+
+function CHECK_CONNECTION () {
+
+    # Assume everything is fine initially
+    CONNECTION_ERROR="FALSE"
+
+    echo -e "${C_CYAN}Checking connection...${C_ESC}"
+    if ! curl --silent -f -LI "$TAR_URL" > /dev/null ; then
+        echo
+        echo -e "${C_RED}Looks like Discord servers are unreachable.${C_ESC}"
+        echo -e "${C_RED}Make sure your Internet connection works, and run this script again.${C_ESC}"
+        CONNECTION_ERROR="TRUE"
+        PAUSE "Press [ENTER] to continue"
+        # exit 1
+    fi
+}
 
 function CHECK_DEPENDENCIES () {
     if [ ! $(command -v "tar") ]; then
             echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'tar'${C_ESC}"
             echo -e "${C_YELLOW}tar is necessary to unpack the downloaded Discord package${C_ESC}"
             echo
-            DEPENDENCY_ERROR="TRUE"
+            local DEPENDENCY_ERROR="TRUE"
     fi
 
     if [ ! $(command -v "gzip") ]; then
             echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'gzip'${C_ESC}"
             echo -e "${C_YELLOW}gzip is necessary to unpack the downloaded Discord package${C_ESC}"
             echo
-            DEPENDENCY_ERROR="TRUE"
+            local DEPENDENCY_ERROR="TRUE"
     fi
 
     if [ ! $(command -v "wget") ]; then
             echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'wget'${C_ESC}"
             echo -e "${C_YELLOW}wget is necessary to download the Discord package${C_ESC}"
             echo
-            DEPENDENCY_ERROR="TRUE"
+            local DEPENDENCY_ERROR="TRUE"
     fi
 
     if [ ! $(command -v "jq") ]; then
-            USE_JQ="FALSE"
             echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'jq'${C_ESC}"
-            echo -e "${C_YELLOW}jq is used to save and read the script configuration${C_ESC}"
-            echo -e "${C_YELLOW}While not necessary, it's highly recommended${C_ESC}"
+            echo -e "${C_YELLOW}jq is used to save and read the script configuration, and parse update versions${C_ESC}"
             echo
+            local DEPENDENCY_ERROR="TRUE"
+    fi
+
+    if [ ! $(command -v "xdg-desktop-menu") ]; then
+            echo -e "${C_RED}Dependency error: Can't find ${C_CYAN}'xdg-desktop-menu'${C_ESC}"
+            echo -e "${C_YELLOW}xdg-desktop-menu is part of xdg-utils. It's needed for handling the desktop activators${C_ESC}"
+            echo
+            local DEPENDENCY_ERROR="TRUE"
     fi
 
     if [ "$DEPENDENCY_ERROR" = "TRUE" ]; then
@@ -70,10 +127,58 @@ function CHECK_DEPENDENCIES () {
     fi
 }
 
-function DEPENDENCY_CHECK () {
-if [ ! $(command -v "$1") ]; then
-		echo -e "${C_RED}Warning! Couldn't find the '"$1"'!${C_ESC}"
-fi
+function GET_LATEST_VERSION_INFO () {
+    echo -e "${C_CYAN}Downloading info about the latest release...${C_ESC}"
+    local JSON_OUT=$(curl -s -X GET "$UPDATE_API_URL")
+    LATEST_CLIENT_VERSION=$(echo "$JSON_OUT" | jq -r '.name')
+    LATEST_CLIENT_DATE=$(echo "$JSON_OUT" | jq -r '.pub_date')
+
+    if [ -z "$LATEST_CLIENT_VERSION" ]; then
+        LATEST_CLIENT_VERSION="null"
+    fi
+
+    if [ -z "$LATEST_CLIENT_DATE" ]; then
+        LATEST_CLIENT_DATE="null"
+    fi
+
+}
+
+function READ_CURRENT_VERSION_INFO () {
+    if [ -f "$DISCORD_INSTALL_PATH/Discord/resources/build_info.json" ]; then
+        echo -e "${C_CYAN}Reading the currently installed client version info...${C_ESC}"
+        CURRENT_INSTALLED_CLIENT_VERSION=$(cat "$DISCORD_INSTALL_PATH/Discord/resources/build_info.json" | jq --raw-output '.version')
+        CURRENT_INSTALLED_CLIENT_CHANNEL=$(cat "$DISCORD_INSTALL_PATH/Discord/resources/build_info.json" | jq --raw-output '.releaseChannel')
+    else
+        CURRENT_INSTALLED_CLIENT_VERSION="null"
+        CURRENT_INSTALLED_CLIENT_CHANNEL="null"
+    fi
+}
+
+function IS_THERE_AN_UPDATE () {
+    # Check if latest client version is higher than the currently installed one.
+    # sed is used to remove dots for the comparison reasons
+    if [[ "$(echo $LATEST_CLIENT_VERSION | sed -e 's/\.//g')" -gt "$(echo $CURRENT_INSTALLED_CLIENT_VERSION | sed -e 's/\.//g')" ]]; then
+        echo "TRUE"
+    else
+        echo "FALSE"
+    fi
+}
+
+function COMPARE_VERSIONS () {
+    # if Discord is installed
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+
+        echo -e "Currently installed version/channel: ${C_CYAN}$CURRENT_INSTALLED_CLIENT_VERSION / $CURRENT_INSTALLED_CLIENT_CHANNEL${C_ESC}"
+
+        # if there is an update available
+        if [ "$(IS_THERE_AN_UPDATE)" = "TRUE" ]; then
+            echo -e "${C_YELLOW}An update is available!${C_ESC}    (version: ${C_CYAN}$LATEST_CLIENT_VERSION${C_ESC} / date: ${C_CYAN}$LATEST_CLIENT_DATE${C_ESC})"
+        else
+            echo -e "${C_CYAN}You seem to be using the latest version${C_ESC}"
+        fi
+    else
+        echo -e "Latest available version: ${C_CYAN}$LATEST_CLIENT_VERSION / $LATEST_CLIENT_DATE${C_ESC}"
+    fi
 }
 
 #Usage: PAUSE <text>
@@ -84,31 +189,29 @@ function PAUSE () {
 # For reading all of the needed config variables
 # Checks if the json file exists, then proceeds to read from it
 function READ_CONFIG () {
-    if [ "$USE_JQ" = "TRUE" ]; then
-        if [ -f "$JSON_CONFIG_FILE" ]; then
-            echo "Reading json..."
-            OVERRIDE_OPTION_1=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override1')
-            OVERRIDE_OPTION_2=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override2')
-        else
-            echo "No config file to read. Skipping"
-        fi
+    if [ -f "$JSON_CONFIG_FILE" ]; then
+        echo -e "${C_CYAN}Reading script configuration from json...${C_ESC}"
+        OVERRIDE_OPTION_1=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override1')
+        OVERRIDE_OPTION_2=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override2')
+        OVERRIDE_OPTION_3=$(cat "$JSON_CONFIG_FILE" | jq --raw-output '.configuration .override3')
+    else
+        echo -e "${C_CYAN}No config file to read. Skipping${C_ESC}"
     fi
 }
 
 # Writes the config with currently set options
 function WRITE_CONFIG () {
-    if [ "$USE_JQ" = "TRUE" ]; then
-        if [ -f "$JSON_CONFIG_FILE" ]; then
-            rm "$JSON_CONFIG_FILE"
-        fi
+    if [ -f "$JSON_CONFIG_FILE" ]; then
+        rm "$JSON_CONFIG_FILE"
+    fi
 
-        # Wtire the json file, if the location exists
-        if [ -d "$DISCORD_INSTALL_PATH" ]; then
-            echo "Writing json..."
-            jq -n --arg override1 ${OVERRIDE_OPTION_1} \
-                --arg override2 ${OVERRIDE_OPTION_2} \
-                '{configuration: $ARGS.named}' > "$JSON_CONFIG_FILE"
-        fi
+    # Wtire the json file, if the location exists
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+        echo -e "${C_CYAN}Writing json...${C_ESC}"
+        jq -n --arg override1 ${OVERRIDE_OPTION_1} \
+            --arg override2 ${OVERRIDE_OPTION_2} \
+            --arg override3 ${OVERRIDE_OPTION_3} \
+            '{configuration: $ARGS.named}' > "$JSON_CONFIG_FILE"
     fi
 
 }
@@ -117,12 +220,12 @@ function CLEANUP () {
     echo -e "${C_CYAN}Cleaning up /tmp files...${C_ESC}"
 
     if [ -f "$TEMP_ACTIVATOR_PATH" ]; then
-        echo "1/2"
+        echo -e "${C_CYAN}1/2${C_ESC}"
         rm "$TEMP_ACTIVATOR_PATH"
     fi
 
     if [ -f "$TAR_OUTPUT_PATH" ]; then
-        echo "2/2"
+        echo -e "${C_CYAN}2/2${C_ESC}"
         rm "$TAR_OUTPUT_PATH"
     fi
 
@@ -143,19 +246,17 @@ function PAUSE () {
 	read -p "$*"
 }
 
-# Detects the installation by the $DISCORD_INSTALL_PATH
-# it shows a message depending if the folder exists or not
-function DETECT_INSTALLATION () {
-    if [ -d "$DISCORD_INSTALL_PATH" ]; then
-        echo -e "${C_GREEN}Detected${C_ESC}"
-    else
-        echo -e "${C_YELLOW}Not detected${C_ESC}"
-    fi
-}
-
 function DOWNLOAD_LATEST_TARGZ () {
-    echo "Downloading the latest package..."
+    echo -e "${C_CYAN}Downloading the latest package...${C_ESC}"
     wget "$TAR_URL" -O "$TAR_OUTPUT_PATH"
+
+    if [ ! -s "$TAR_OUTPUT_PATH" ]; then
+        echo -e "${C_RED}Something went wrong. Downloaded file doesn't contain any data. Can not continue.${C_ESC}"
+        echo -e "${C_RED}Check your Internet connection and run this script again.${C_ESC}"
+        PAUSE "Press [ENTER] to continue."
+        CLEANUP
+        exit 1
+    fi
 }
 
 # Create the install path if it doesn't exist
@@ -191,7 +292,7 @@ function GENERATE_DESKTOP_ACTIVATOR () {
         local EXTRA_PARAMETER=""
     fi
 
-    echo "[Desktop Entry]
+echo "[Desktop Entry]
 Name=Discord
 StartupWMClass=discord
 Comment=All-in-one voice and text chat for gamers that's free, secure, and works on both your desktop and phone.
@@ -201,6 +302,7 @@ Icon=$DISCORD_INSTALL_PATH/Discord/discord.png
 Type=Application
 Categories=Network;InstantMessaging;
 Path=${DISCORD_INSTALL_PATH}/Discord" > "$TEMP_ACTIVATOR_PATH"
+
     echo -e "${C_GREEN}The activator has been created...${C_ESC}"
 }
 
@@ -251,14 +353,14 @@ function INITIALISE () {
     echo -e "${C_BLUE_BG}Step 1/8 - Cleanup${C_ESC}"
     CLEANUP
 
-    echo -e "${C_BLUE_BG}Step 2/8 - Uninstall the previous version${C_ESC}"
+    echo -e "${C_BLUE_BG}Step 2/8 - Download the latest .tar.gz package from Discord servers${C_ESC}"
+    DOWNLOAD_LATEST_TARGZ
+
+    echo -e "${C_BLUE_BG}Step 3/8 - Uninstall the previous version${C_ESC}"
     UNINSTALL
 
-    echo -e "${C_BLUE_BG}Step 3/8 - Check directories, and create the install path if it doesn't exist${C_ESC}"
+    echo -e "${C_BLUE_BG}Step 4/8 - Check directories, and create the install path if it doesn't exist${C_ESC}"
     CHECK_DIRECTORIES
-
-    echo -e "${C_BLUE_BG}Step 4/8 - Download the latest .tar.gz package from Discord servers${C_ESC}"
-    DOWNLOAD_LATEST_TARGZ
 
     echo -e "${C_BLUE_BG}Step 5/8 - Extract the package to the install location${C_ESC}"
     EXTRACT "$TAR_OUTPUT_PATH" "$DISCORD_INSTALL_PATH"
@@ -276,6 +378,19 @@ function INITIALISE () {
 
     echo -e "${C_BLUE_BG}Step 8/8 - Cleanup again${C_ESC}"
     CLEANUP
+
+    # Refresh info about current info to avoid showing null in the header
+    READ_CURRENT_VERSION_INFO
+}
+
+# Detects the installation by the $DISCORD_INSTALL_PATH
+# it shows a message depending if the folder exists or not
+function DETECT_INSTALLATION () {
+    if [ -d "$DISCORD_INSTALL_PATH" ]; then
+        echo -e "${C_GREEN}Detected${C_ESC}"
+    else
+        echo -e "${C_YELLOW}Not detected${C_ESC}"
+    fi
 }
 
 function DISPLAY_HEADER () {
@@ -283,10 +398,10 @@ function DISPLAY_HEADER () {
     echo
     echo -e "Install path: ${C_BLUE}$DISCORD_INSTALL_PATH${C_ESC} ($(DETECT_INSTALLATION))"
     echo "Discord process status: $(CHECK_IF_DISCORD_IS_RUNNING)"
-    if [ "$USE_JQ" = "FALSE" ]; then
-        echo
-        echo -e "${C_YELLOW}jq not present or disabled. Configuration will not be stored.${C_ESC}"
-    fi
+    echo
+
+    COMPARE_VERSIONS
+
     echo
     DISPLAY_OVERRIDES_INFO
 }
@@ -298,6 +413,10 @@ function DISPLAY_OVERRIDES_INFO () {
 
     if [ ! "$OVERRIDE_OPTION_2" == "FALSE" ]; then
         echo -e "${C_CYAN}override2 enabled: 'postinst.sh' will always be used${C_ESC}"
+    fi
+
+    if [ ! "$OVERRIDE_OPTION_3" == "FALSE" ]; then
+        echo -e "${C_CYAN}override3 enabled: updates will be installed automatically${C_ESC}"
     fi
 }
 
@@ -311,7 +430,11 @@ do
     echo
     echo "PLEASE make sure Discord isn't currently running when installing or updating!"
     echo
-    echo "[1] - Install/update"
+    if [ ! "$CONNECTION_ERROR" = "TRUE" ]; then
+        echo "[1] - Install/update"
+    else
+        echo -e "[ ] - Install/update [${C_YELLOW}Impossible; check your Internet connection${C_ESC}]"
+    fi
     echo "[2] - Advanced (be careful!)"
     echo
     echo "[0] - Exit"
@@ -330,13 +453,15 @@ do
             ;;
 
             "1")
-                INITIALISE
+                if [ ! "$CONNECTION_ERROR" = "TRUE" ]; then
+                    INITIALISE
 
-                if [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
-                    PAUSE "Press any key to continue."
+                    if [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+                        PAUSE "Press any key to continue."
+                    fi
+
+                    CHOICE_MENU_1
                 fi
-
-                CHOICE_MENU_1
             ;;
 
             "2")
@@ -397,7 +522,7 @@ do
     echo "[1] - Remove the user data"
     echo "[2] - Complete uninstall"
     echo
-    echo "[3] - Function overrides (advanced)"
+    echo "[3] - Script overrides (additional functions)"
     echo
     echo
     echo "[0] - Go back"
@@ -437,16 +562,24 @@ done
 
 function OVERRIDE_OPTION_1_STATUS () {
     if [ "$OVERRIDE_OPTION_1" == "TRUE" ]; then
-        echo -e "${C_CYAN}Enabled${C_ESC}"
+        echo -e "${C_GREEN}True${C_ESC}"
     elif  [ "$OVERRIDE_OPTION_1" == "FALSE" ]; then
-        echo -e "${C_CYAN}Disabled${C_ESC}"
+        echo -e "${C_CYAN}False${C_ESC}"
     fi
 }
 
 function OVERRIDE_OPTION_2_STATUS () {
     if [ "$OVERRIDE_OPTION_2" == "TRUE" ]; then
-        echo -e "${C_CYAN}True${C_ESC}"
+        echo -e "${C_GREEN}True${C_ESC}"
     elif  [ "$OVERRIDE_OPTION_2" == "FALSE" ]; then
+        echo -e "${C_CYAN}False${C_ESC}"
+    fi
+}
+
+function OVERRIDE_OPTION_3_STATUS () {
+    if [ "$OVERRIDE_OPTION_3" == "TRUE" ]; then
+        echo -e "${C_GREEN}True${C_ESC}"
+    elif  [ "$OVERRIDE_OPTION_3" == "FALSE" ]; then
         echo -e "${C_CYAN}False${C_ESC}"
     fi
 }
@@ -459,11 +592,11 @@ do
     echo
     echo "[1] - Use '--no-sandbox' in the activator [status: $(OVERRIDE_OPTION_1_STATUS)]"
     echo "[2] - Always run the postinst.sh [status: $(OVERRIDE_OPTION_2_STATUS)]"
+    echo "[3] - Turn on automatic updates [status: $(OVERRIDE_OPTION_3_STATUS)]"
+    echo
+    echo
     echo
     echo "[0] - Go back"
-    echo
-    echo
-    echo
     echo
     echo
     echo
@@ -492,6 +625,14 @@ do
                     OVERRIDE_OPTION_2="TRUE"
                 fi
             ;;
+
+            "3")
+                if [ "$OVERRIDE_OPTION_3" == "TRUE" ]; then
+                    OVERRIDE_OPTION_3="FALSE"
+                elif [ "$OVERRIDE_OPTION_3" == "FALSE" ]; then
+                    OVERRIDE_OPTION_3="TRUE"
+                fi
+            ;;
         esac
 done
 }
@@ -501,7 +642,27 @@ done
 
 CHECK_DEPENDENCIES
 CLEANUP
+
 READ_CONFIG
+
+CHECK_CONNECTION
+
+GET_LATEST_VERSION_INFO
+READ_CURRENT_VERSION_INFO
+
+
+# Auto install the update if override3 option is enabled by the user
+if [ "$OVERRIDE_OPTION_3" = "TRUE" ]; then
+    if [ "$(IS_THERE_AN_UPDATE)" = TRUE ]; then
+        echo -e "${C_MAGENTA_BG}An update is available!${C_ESC}"
+        echo -e "${C_MAGENTA_BG}Downloading starts in 5 seconds. Last chance to cancel.${C_ESC}"
+        sleep 5
+        INITIALISE
+    fi
+fi
+
 MAIN_MENU
+
 WRITE_CONFIG
+
 echo "End of the script"
