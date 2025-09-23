@@ -2,6 +2,7 @@ This is my Bash script I wrote to make managing Discord installation easier (wit
 
 # Features:
 - Install the latest Discord client from the official .tar.gz package
+- Let you know if update is available (with option to automatically install it, by turning on the override3 option)
 - Update existing installation
 - Uninstall
 - Remove the user data folder
